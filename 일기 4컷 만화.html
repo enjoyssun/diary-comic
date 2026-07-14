@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<!-- saved from url=(0043)file:///C:/Users/5-4/Downloads/index_4.html -->
+<html lang="ko"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>일기 4컷 만화</title>
+<link href="./일기 4컷 만화_files/css2" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F7F9F4;      /* 노트 종이 */
+    --grid:#DCE6DA;       /* 모눈 선 */
+    --ink:#2E3440;        /* 잉크 */
+    --marker:#FFE45C;     /* 형광펜 */
+    --stamp:#E56B4E;      /* 도장 빨강 */
+    --pencil:#8A93A2;     /* 연필 회색 */
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'IBM Plex Sans KR',sans-serif;color:var(--ink);
+    background:var(--paper);
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:24px 24px;
+    min-height:100vh;padding:32px 16px 80px;
+  }
+  .wrap{max-width:680px;margin:0 auto}
+  h1{
+    font-family:'Gaegu',cursive;font-weight:700;font-size:2.6rem;line-height:1.1;
+    display:inline;background:linear-gradient(transparent 55%,var(--marker) 55%);
+  }
+  .sub{margin:10px 0 28px;color:var(--pencil);font-size:.95rem}
+  .card{
+    background:#fff;border:2px solid var(--ink);border-radius:4px;
+    box-shadow:5px 5px 0 rgba(46,52,64,.15);padding:20px;margin-bottom:20px;
+  }
+  label{font-family:'Gaegu',cursive;font-size:1.25rem;display:block;margin-bottom:6px}
+  textarea,input[type=password]{
+    width:100%;border:1.5px solid var(--ink);border-radius:3px;background:var(--paper);
+    font-family:inherit;font-size:1rem;padding:10px;color:var(--ink);
+  }
+  textarea{min-height:150px;resize:vertical;line-height:1.7}
+  textarea:focus,input:focus{outline:2px solid var(--marker)}
+  .hint{font-size:.8rem;color:var(--pencil);margin-top:6px}
+  .hint a{color:var(--stamp)}
+  button{
+    font-family:'Gaegu',cursive;font-size:1.4rem;font-weight:700;cursor:pointer;
+    background:var(--marker);color:var(--ink);border:2px solid var(--ink);
+    border-radius:4px;padding:10px 28px;box-shadow:3px 3px 0 var(--ink);
+    transition:transform .05s;
+  }
+  button:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
+  button:disabled{opacity:.5;cursor:wait;transform:none}
+  #status{font-family:'Gaegu',cursive;font-size:1.15rem;margin:14px 0;min-height:1.4em}
+  #status.err{color:var(--stamp)}
+  /* 완성작: 책상 위에 테이프로 붙인 느낌 */
+  #result{display:none;text-align:center;margin-top:28px}
+  #result.show{display:block}
+  .tape{
+    display:inline-block;position:relative;background:#fff;padding:14px;
+    border:1.5px solid var(--ink);transform:rotate(-1.2deg);
+    box-shadow:6px 8px 14px rgba(46,52,64,.2);
+  }
+  .tape::before{
+    content:"";position:absolute;top:-14px;left:50%;transform:translateX(-50%) rotate(2deg);
+    width:110px;height:28px;background:rgba(255,228,92,.75);
+    border-left:1px dashed rgba(46,52,64,.3);border-right:1px dashed rgba(46,52,64,.3);
+  }
+  #comicCanvas{max-width:100%;height:auto;display:block}
+  #title{font-family:'Gaegu',cursive;font-size:1.6rem;margin:16px 0 4px}
+  #dl{margin-top:14px}
+  footer{margin-top:48px;text-align:center;color:var(--pencil);font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>일기 4컷 만화</h1>
+  <p class="sub">오늘 있었던 일을 쓰면, 4컷 만화로 그려드려요.</p>
+
+  <div class="card">
+    <label for="diary">✏️ 오늘의 일기</label>
+    <textarea id="diary" placeholder="오늘은 비가 왔다. 우산을 안 가져가서..."></textarea>
+  </div>
+
+  <button id="go">만화 만들기 ✨</button>
+  <p id="status"></p>
+
+  <div id="result">
+    <div class="tape"><canvas id="comicCanvas" width="1576" height="1576"></canvas></div>
+    <p id="title"></p>
+    <button id="dl">그림 저장하기 💾</button>
+  </div>
+
+  <footer>스타일 참고 그림: <code>style/1.png ~ 3.png</code> 를 저장소에 넣으면 내 그림체로 그려요.</footer>
+</div>
+
+<script>
+/* ─── 설정: 내 그림체 샘플 (저장소의 style 폴더에 넣기) ─── */
+const STYLE_IMAGES = ["style/1.png","style/2.png","style/3.png"]; // 없으면 자동으로 건너뜀
+const WORKER_URL  = "https://diary-comic.enjoy-ssun.workers.dev"; // ← 내 Worker 주소로 변경!
+const TEXT_MODEL  = "gemini-2.5-flash";
+const IMAGE_MODEL = "gemini-2.5-flash-image"; // 이미지 생성 모델
+const API = m => `${WORKER_URL}?model=${m}`;
+
+const $ = id => document.getElementById(id);
+const status = (msg, err=false) => { $("status").textContent = msg; $("status").className = err?"err":""; };
+
+/* 스타일 샘플을 base64로 로드 (없으면 빈 배열) */
+async function loadStyleRefs(){
+  const refs = [];
+  for(const path of STYLE_IMAGES){
+    try{
+      const r = await fetch(path);
+      if(!r.ok) continue;
+      const blob = await r.blob();
+      const b64 = await new Promise(res=>{
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result.split(",")[1]);
+        fr.readAsDataURL(blob);
+      });
+      refs.push({inline_data:{mime_type:blob.type||"image/png", data:b64}});
+    }catch(e){/* 파일 없음 → 무시 */}
+  }
+  return refs;
+}
+
+/* 1단계: 일기 → 4컷 콘티 JSON */
+async function makeStoryboard(diary){
+  const prompt = `당신은 4컷 만화 콘티 작가입니다. 아래 일기를 기승전결 4컷 콘티로 만드세요.
+- 마지막 컷에 유머나 여운
+- scene_en: 이미지 생성용 영어 장면 묘사 (인물 행동/표정/배경 구체적으로, 매 컷 같은 주인공)
+- dialog: 짧은 한국어 대사 (없으면 "")
+반드시 JSON만 출력: {"title":"제목","panels":[{"scene_en":"...","dialog":"..."},...4개]}
+
+일기: ${diary}`;
+  const r = await fetch(`${API(TEXT_MODEL)}`,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+  });
+  if(!r.ok) throw new Error(`콘티 생성 실패 (${r.status}) — 오늘 무료 사용량이 다 떨어졌을 수 있어요`);
+  const data = await r.json();
+  const text = data.candidates[0].content.parts.map(p=>p.text||"").join("");
+  return JSON.parse(text.replace(/```(json)?/g,"").trim());
+}
+
+/* 2단계: 각 컷 이미지 생성 */
+async function makePanel(scene, styleRefs){
+  const parts = [...styleRefs, {text:
+    (styleRefs.length ? "Draw in EXACTLY the same art style as the reference images above. " : "") +
+    `Simple hand-drawn diary comic panel, clean lines: ${scene}. Square composition, no text, no speech bubbles.`}];
+  const r = await fetch(`${API(IMAGE_MODEL)}`,{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts}], generationConfig:{responseModalities:["IMAGE"]}})
+  });
+  if(!r.ok) throw new Error(`그림 생성 실패 (${r.status})`);
+  const data = await r.json();
+  const img = data.candidates[0].content.parts.find(p=>p.inline_data||p.inlineData);
+  const d = img.inline_data || img.inlineData;
+  return `data:${d.mime_type||d.mimeType};base64,${d.data}`;
+}
+
+/* 3단계: 캔버스에 2x2 합성 + 말풍선 */
+async function compose(urls, sb){
+  const S=768, M=12, cv=$("comicCanvas"), ctx=cv.getContext("2d");
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,cv.width,cv.height);
+  const pos=[[M,M],[S+M*2,M],[M,S+M*2],[S+M*2,S+M*2]];
+  for(let i=0;i<4;i++){
+    const img = await new Promise((res,rej)=>{
+      const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=urls[i];
+    });
+    ctx.drawImage(img,pos[i][0],pos[i][1],S,S);
+    ctx.strokeStyle="#2E3440"; ctx.lineWidth=3;
+    ctx.strokeRect(pos[i][0],pos[i][1],S,S);
+    const dialog=(sb.panels[i].dialog||"").trim();
+    if(dialog){
+      ctx.font="700 34px Gaegu, sans-serif";
+      const w=ctx.measureText(dialog).width;
+      const x=pos[i][0]+24, y=pos[i][1]+S-40;
+      ctx.fillStyle="#fff";
+      ctx.strokeStyle="#2E3440"; ctx.lineWidth=2.5;
+      roundRect(ctx,x-12,y-34,w+24,50,10); ctx.fill(); ctx.stroke();
+      ctx.fillStyle="#2E3440"; ctx.fillText(dialog,x,y);
+    }
+  }
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+/* 실행 */
+$("go").addEventListener("click", async ()=>{
+  const diary=$("diary").value.trim();
+  if(!diary) return status("일기를 먼저 써주세요! ✏️", true);
+  $("go").disabled=true; $("result").classList.remove("show");
+  try{
+    status("내 그림체 샘플을 챙기는 중…");
+    const refs = await loadStyleRefs();
+    status("콘티를 짜는 중… 📝");
+    const sb = await makeStoryboard(diary);
+    const urls=[];
+    for(let i=0;i<4;i++){
+      status(`${i+1}번째 컷을 그리는 중… 🎨 (${i+1}/4)`);
+      urls.push(await makePanel(sb.panels[i].scene_en, refs));
+    }
+    status("네 컷을 이어 붙이는 중… ✂️");
+    await compose(urls, sb);
+    $("title").textContent = "「 "+sb.title+" 」";
+    $("result").classList.add("show");
+    status("완성! 🎉");
+  }catch(e){
+    console.error(e);
+    status(e.message || "문제가 생겼어요. 잠시 후 다시 시도해주세요.", true);
+  }finally{
+    $("go").disabled=false;
+  }
+});
+
+$("dl").addEventListener("click", ()=>{
+  const a=document.createElement("a");
+  a.download="my-diary-comic.png";
+  a.href=$("comicCanvas").toDataURL("image/png");
+  a.click();
+});
+</script>
+
+
+</body></html>
