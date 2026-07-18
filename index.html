@@ -50,7 +50,7 @@
   }
   button:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
   button:disabled{opacity:.5;cursor:wait;transform:none}
-  #status{font-family:'Gaegu',cursive;font-size:1.15rem;margin:14px 0;min-height:1.4em}
+  #status{white-space:pre-wrap;font-family:'Gaegu',cursive;font-size:1.15rem;margin:14px 0;min-height:1.4em}
   #status.err{color:var(--stamp)}
   /* 완성작: 책상 위에 테이프로 붙인 느낌 */
   #result{display:none;text-align:center;margin-top:28px}
@@ -98,23 +98,27 @@
 const STYLE_IMAGES = ["style/1.png","style/2.png","style/3.png"]; // 없으면 자동으로 건너뜀
 const WORKER_URL  = "https://diary-comic.enjoy-ssun.workers.dev"; // ← 내 Worker 주소로 변경!
 // 위에서부터 차례로 시도 → 안 되면 자동으로 다음 모델로 넘어가요
-const TEXT_MODELS  = ["gemini-flash-latest","gemini-flash-lite-latest","gemini-2.5-flash-lite","gemini-2.5-flash"];
-const IMAGE_MODELS = ["gemini-3.1-flash-image","gemini-2.5-flash-image"];
+const TEXT_MODELS  = ["gemini-3.5-flash","gemini-3-flash-preview","gemini-3.1-flash-lite","gemini-flash-latest","gemini-2.5-flash-lite"];
+const IMAGE_MODELS = ["gemini-3.1-flash-image","gemini-3.1-flash-lite-image","gemini-2.5-flash-image"];
 const API = m => `${WORKER_URL}?model=${m}`;
 
 /* 후보 모델을 순서대로 시도하는 공통 함수 */
 async function tryModels(models, body){
-  let lastErr = "";
+  const report = [];
   for(const m of models){
     const r = await fetch(API(m),{
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify(body)
     });
     if(r.ok) return r.json();
-    lastErr = `(${r.status}) ${await r.text().catch(()=> "")}`;
-    if(![400,404,429].includes(r.status)) break; // 이 외의 에러는 재시도 무의미
+    const t = await r.text().catch(()=> "");
+    // 에러 본문에서 핵심 문구만 추출
+    let brief = t.slice(0,80);
+    try{ brief = JSON.parse(t).error.message.slice(0,80); }catch(e){}
+    report.push(`${m} → ${r.status}: ${brief}`);
+    if(![400,404,429,503].includes(r.status)) break;
   }
-  throw new Error(lastErr.slice(0,300));
+  throw new Error("\n" + report.join("\n"));
 }
 
 const $ = id => document.getElementById(id);
